@@ -24,6 +24,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.blackridge.engine.AiEngineHelper
 import com.example.blackridge.model.NsfwSetting
 import com.example.ui.theme.*
 
@@ -46,7 +47,8 @@ fun StartSessionScreen(
             )
             is AppScreen.StartApi -> ScreenTwoApi(
                 currentKey = uiState.apiKey,
-                onProceed = { viewModel.setApiKeyAndProceed(it) },
+                currentModel = uiState.aiModel,
+                onProceed = { key, model -> viewModel.setApiKeyAndProceed(key, model) },
                 onSkip = { viewModel.skipApiKey() }
             )
             is AppScreen.StartCharacter -> ScreenThreeBegin(
@@ -216,10 +218,13 @@ private fun NsfwOptionRow(
 @Composable
 private fun ScreenTwoApi(
     currentKey: String,
-    onProceed: (String) -> Unit,
+    currentModel: String,
+    onProceed: (String, String) -> Unit,
     onSkip: () -> Unit
 ) {
     var keyInput by remember { mutableStateOf(if (currentKey == "SKIP") "" else currentKey) }
+    var modelInput by remember { mutableStateOf(currentModel.ifBlank { AiEngineHelper.DEFAULT_OPENROUTER_MODEL }) }
+    val isOpenRouter = AiEngineHelper.isOpenRouterKey(keyInput)
 
     Column(
         modifier = Modifier
@@ -260,7 +265,7 @@ private fun ScreenTwoApi(
                     )
                     Spacer(modifier = Modifier.width(10.dp))
                     Text(
-                        text = "GEMINI ENGINE / OFFLINE TOGGLE",
+                        text = "AI ENGINE / OFFLINE TOGGLE",
                         style = MaterialTheme.typography.titleMedium,
                         color = TextWhite
                     )
@@ -291,8 +296,8 @@ private fun ScreenTwoApi(
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("api_key_input"),
-                    label = { Text("Gemini API Key (Optional)", color = TextMuted) },
-                    placeholder = { Text("AIzaSy... or leave blank to SKIP", color = TextDark) },
+                    label = { Text("OpenRouter or Gemini API Key (Optional)", color = TextMuted) },
+                    placeholder = { Text("sk-or-... / AIzaSy... or leave blank to SKIP", color = TextDark) },
                     singleLine = true,
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = AmberTerminal,
@@ -302,6 +307,41 @@ private fun ScreenTwoApi(
                     ),
                     shape = RoundedCornerShape(8.dp)
                 )
+
+                if (isOpenRouter) {
+                    Spacer(modifier = Modifier.height(14.dp))
+                    OutlinedTextField(
+                        value = modelInput,
+                        onValueChange = { modelInput = it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("ai_model_input"),
+                        label = { Text("OpenRouter Model", color = TextMuted) },
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = AmberTerminal,
+                            unfocusedBorderColor = BlackridgeBorder,
+                            focusedTextColor = TextWhite,
+                            unfocusedTextColor = TextWhite
+                        ),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        AiEngineHelper.OPENROUTER_PRESETS.forEach { (label, id) ->
+                            OutlinedButton(
+                                onClick = { modelInput = id },
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    contentColor = if (modelInput == id) AmberTerminal else TextMuted
+                                ),
+                                shape = RoundedCornerShape(6.dp)
+                            ) {
+                                Text(label, style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -309,7 +349,7 @@ private fun ScreenTwoApi(
 
         if (keyInput.isNotBlank()) {
             Button(
-                onClick = { onProceed(keyInput) },
+                onClick = { onProceed(keyInput, if (isOpenRouter) modelInput else "") },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(52.dp)

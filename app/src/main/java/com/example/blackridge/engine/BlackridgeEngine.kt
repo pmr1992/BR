@@ -4,7 +4,7 @@ import com.example.blackridge.model.*
 import kotlin.random.Random
 
 class BlackridgeEngine(
-    private val geminiHelper: GeminiEngineHelper = GeminiEngineHelper()
+    private val aiHelper: AiEngineHelper = AiEngineHelper()
 ) {
 
     fun generateTurnOne(state: GameState): TurnOutput {
@@ -88,9 +88,9 @@ class BlackridgeEngine(
         playerAction: String,
         recentTurns: List<TurnOutput> = emptyList()
     ): Pair<GameState, TurnOutput> {
-        // Try Gemini if API key is valid
+        // Try the AI engine (OpenRouter or Gemini) if an API key is set
         if (currentState.apiKey.isNotEmpty() && currentState.apiKey != "SKIP") {
-            val aiTurn = geminiHelper.requestTurnFromGemini(currentState, playerAction, currentState.apiKey, recentTurns)
+            val aiTurn = aiHelper.requestTurn(currentState, playerAction, currentState.apiKey, recentTurns)
             if (aiTurn != null) {
                 val updatedState = updateStateFromAiTurn(currentState, aiTurn, playerAction)
                 return Pair(updatedState, aiTurn)

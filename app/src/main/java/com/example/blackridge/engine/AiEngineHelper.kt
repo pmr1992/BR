@@ -13,11 +13,11 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
-class GeminiEngineHelper {
+class AiEngineHelper {
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(12, TimeUnit.SECONDS)
-        .readTimeout(45, TimeUnit.SECONDS)
+        .readTimeout(90, TimeUnit.SECONDS)
         .writeTimeout(12, TimeUnit.SECONDS)
         .build()
 
@@ -35,7 +35,7 @@ class GeminiEngineHelper {
         }
     }
 
-    suspend fun requestTurnFromGemini(
+    suspend fun requestTurn(
         state: GameState,
         playerAction: String,
         apiKey: String,
@@ -44,7 +44,7 @@ class GeminiEngineHelper {
         val effectiveKey = getEffectiveApiKey(apiKey)
         if (effectiveKey.isEmpty()) return@withContext null
 
-        // Rules + world canon go in Gemini's real system slot so they are re-injected on every
+        // Rules + world canon go in the model's real system slot so they are re-injected on every
         // call instead of being one more user message the model can drift away from.
         val systemPrompt = buildSystemPrompt(state)
 
@@ -75,56 +75,102 @@ Resolve this action as the ENGINE. Advance to Turn ${state.turn + 1}, advance th
         """.trimIndent()
 
         try {
-            val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$effectiveKey"
-            val jsonPayload = JSONObject().apply {
-                put("systemInstruction", JSONObject().apply {
-                    put("parts", JSONArray().put(JSONObject().put("text", systemPrompt)))
-                })
-                put("contents", JSONArray().apply {
-                    // Replay recent turns as real conversation so the model sees its own past
-                    // skeletons (keeps the format locked) and remembers what NPCs just did.
-                    for (past in recentTurns.takeLast(HISTORY_TURNS)) {
-                        put(textContent("user", past.playerAction.ifBlank { "[SESSION START]" }))
-                        put(textContent("model", past.rawFormattedText.ifBlank { past.toSkeletonString() }))
-                    }
-                    put(textContent("user", userTurnPrompt))
-                })
-                put("generationConfig", JSONObject().apply {
-                    put("temperature", 0.8)
-                    // 2.5 Flash "thinking" tokens count against maxOutputTokens and were truncating
-                    // the skeleton before ACTIONS. Disable thinking and give the output room.
-                    put("maxOutputTokens", 2048)
-                    put("thinkingConfig", JSONObject().put("thinkingBudget", 0))
-                })
-            }
-
-            val request = Request.Builder()
-                .url(url)
-                .post(jsonPayload.toString().toRequestBody("application/json".toMediaType()))
-                .build()
-
-            val response = client.newCall(request).execute()
-            if (!response.isSuccessful) {
-                Log.w("GeminiEngine", "HTTP ${response.code}: ${response.body?.string()}")
-                return@withContext null
-            }
-
-            val bodyString = response.body?.string() ?: return@withContext null
-            val root = JSONObject(bodyString)
-            val candidates = root.optJSONArray("candidates") ?: return@withContext null
-            if (candidates.length() == 0) return@withContext null
-            val firstCandidate = candidates.getJSONObject(0)
-            val content = firstCandidate.optJSONObject("content") ?: return@withContext null
-            val parts = content.optJSONArray("parts") ?: return@withContext null
-            if (parts.length() == 0) return@withContext null
-            val rawText = buildString {
-                for (i in 0 until parts.length()) append(parts.getJSONObject(i).optString("text", ""))
-            }
+            val history = recentTurns.takeLast(HISTORY_TURNS)
+            val rawText = if (isOpenRouterKey(effectiveKey)) {
+                callOpenRouter(effectiveKey, state.aiModel.ifBlank { DEFAULT_OPENROUTER_MODEL }, systemPrompt, history, userTurnPrompt)
+            } else {
+                callGemini(effectiveKey, systemPrompt, history, userTurnPrompt)
+            } ?: return@withContext null
 
             parseTurnOutputFromRaw(rawText, state)?.copy(playerAction = playerAction)
         } catch (e: Exception) {
-            Log.e("GeminiEngine", "Gemini turn failed", e)
+            Log.e("AiEngine", "AI turn failed", e)
             null
+        }
+    }
+
+    private fun callGemini(
+        key: String,
+        systemPrompt: String,
+        history: List<TurnOutput>,
+        userTurnPrompt: String
+    ): String? {
+        val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$key"
+        val jsonPayload = JSONObject().apply {
+            put("systemInstruction", JSONObject().apply {
+                put("parts", JSONArray().put(JSONObject().put("text", systemPrompt)))
+            })
+            put("contents", JSONArray().apply {
+                // Replay recent turns as real conversation so the model sees its own past
+                // skeletons (keeps the format locked) and remembers what NPCs just did.
+                for (past in history) {
+                    put(textContent("user", past.playerAction.ifBlank { "[SESSION START]" }))
+                    put(textContent("model", past.rawFormattedText.ifBlank { past.toSkeletonString() }))
+                }
+                put(textContent("user", userTurnPrompt))
+            })
+            put("generationConfig", JSONObject().apply {
+                put("temperature", 0.8)
+                // 2.5 Flash "thinking" tokens count against maxOutputTokens and were truncating
+                // the skeleton before ACTIONS. Disable thinking and give the output room.
+                put("maxOutputTokens", 2048)
+                put("thinkingConfig", JSONObject().put("thinkingBudget", 0))
+            })
+        }
+
+        val bodyString = post(Request.Builder().url(url), jsonPayload) ?: return null
+        val candidates = JSONObject(bodyString).optJSONArray("candidates") ?: return null
+        if (candidates.length() == 0) return null
+        val parts = candidates.getJSONObject(0).optJSONObject("content")?.optJSONArray("parts") ?: return null
+        return buildString {
+            for (i in 0 until parts.length()) append(parts.getJSONObject(i).optString("text", ""))
+        }
+    }
+
+    private fun callOpenRouter(
+        key: String,
+        model: String,
+        systemPrompt: String,
+        history: List<TurnOutput>,
+        userTurnPrompt: String
+    ): String? {
+        val jsonPayload = JSONObject().apply {
+            put("model", model)
+            put("messages", JSONArray().apply {
+                put(JSONObject().put("role", "system").put("content", systemPrompt))
+                for (past in history) {
+                    put(JSONObject().put("role", "user").put("content", past.playerAction.ifBlank { "[SESSION START]" }))
+                    put(JSONObject().put("role", "assistant").put("content", past.rawFormattedText.ifBlank { past.toSkeletonString() }))
+                }
+                put(JSONObject().put("role", "user").put("content", userTurnPrompt))
+            })
+            put("temperature", 0.8)
+            put("max_tokens", 4000)
+            // Keep reasoning models quick and keep their reasoning out of the skeleton text
+            put("reasoning", JSONObject().put("effort", "low").put("exclude", true))
+        }
+
+        val builder = Request.Builder()
+            .url("https://openrouter.ai/api/v1/chat/completions")
+            .header("Authorization", "Bearer $key")
+            .header("X-Title", "Blackridge")
+        val bodyString = post(builder, jsonPayload) ?: return null
+        val choices = JSONObject(bodyString).optJSONArray("choices") ?: return null
+        if (choices.length() == 0) return null
+        return choices.getJSONObject(0).optJSONObject("message")?.optString("content", "")
+    }
+
+    private fun post(builder: Request.Builder, payload: JSONObject): String? {
+        val request = builder
+            .post(payload.toString().toRequestBody("application/json".toMediaType()))
+            .build()
+        client.newCall(request).execute().use { response ->
+            val body = response.body?.string()
+            if (!response.isSuccessful) {
+                Log.w("AiEngine", "HTTP ${response.code}: $body")
+                return null
+            }
+            return body
         }
     }
 
@@ -169,6 +215,17 @@ $cast
 
     companion object {
         private const val HISTORY_TURNS = 4
+
+        const val DEFAULT_OPENROUTER_MODEL = "anthropic/claude-sonnet-5.5"
+
+        // Quick-pick buttons on the API screen; any OpenRouter model id can be typed instead
+        val OPENROUTER_PRESETS = listOf(
+            "Claude Sonnet" to DEFAULT_OPENROUTER_MODEL,
+            "DeepSeek (cheap)" to "deepseek/deepseek-v4.1-flash",
+            "Grok" to "x-ai/grok-4.7"
+        )
+
+        fun isOpenRouterKey(key: String): Boolean = key.trim().startsWith("sk-or-")
 
         private val ENGINE_RULES = """
 You are not a chatbot. You are a GAME ENGINE running a persistent open-world text RPG called BLACKRIDGE. You maintain STATE, advance TIME, move NPCs around a MAP, and resolve ACTIONS. You only "chat" as NPCs inside the engine output — never as the engine itself rambling. You are the whole world, not one NPC.

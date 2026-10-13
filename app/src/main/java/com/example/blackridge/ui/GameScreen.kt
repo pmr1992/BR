@@ -17,6 +17,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -132,8 +133,28 @@ fun GameScreen(
                             .padding(14.dp),
                         verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
-                        // Hard Output Skeleton Box
-                        HardSkeletonCard(turn = turn, isProcessing = uiState.isProcessingTurn)
+                        if (state != null) {
+                            SceneView(state = state, turn = turn)
+                        }
+
+                        StoryCards(turn = turn)
+
+                        // Full engine readout, one tap away
+                        var showReadout by rememberSaveable { mutableStateOf(false) }
+                        TextButton(
+                            onClick = { showReadout = !showReadout },
+                            modifier = Modifier.testTag("toggle_readout_button")
+                        ) {
+                            Text(
+                                text = if (showReadout) "HIDE ENGINE READOUT" else "SHOW ENGINE READOUT",
+                                color = TextMuted,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 11.sp
+                            )
+                        }
+                        if (showReadout) {
+                            HardSkeletonCard(turn = turn, isProcessing = uiState.isProcessingTurn)
+                        }
 
                         // Action Selection Block
                         ActionsCard(
@@ -432,6 +453,84 @@ private fun SectionBlock(
             fontFamily = if (isMonospace) FontFamily.Monospace else FontFamily.Default,
             lineHeight = 20.sp
         )
+    }
+}
+
+// ============================================================================
+// STORY CARDS — the turn as readable pieces instead of one text block
+// ============================================================================
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun StoryCards(turn: TurnOutput) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(
+            text = turn.scene,
+            style = MaterialTheme.typography.bodyLarge,
+            color = TextWhite,
+            lineHeight = 24.sp
+        )
+
+        // Each NPC line as a speech bubble
+        turn.npcAction.lines().map { it.trim() }.filter { it.isNotEmpty() }.forEach { line ->
+            Row(verticalAlignment = Alignment.Top) {
+                Icon(
+                    Icons.Default.RecordVoiceOver,
+                    contentDescription = null,
+                    tint = CautionOrange,
+                    modifier = Modifier.size(18.dp).padding(top = 2.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(topStart = 2.dp, topEnd = 12.dp, bottomStart = 12.dp, bottomEnd = 12.dp))
+                        .background(BlackridgeSurfaceElevated)
+                        .border(1.dp, CautionOrange.copy(alpha = 0.35f), RoundedCornerShape(topStart = 2.dp, topEnd = 12.dp, bottomStart = 12.dp, bottomEnd = 12.dp))
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                ) {
+                    Text(line, style = MaterialTheme.typography.bodyMedium, color = TextWhite)
+                }
+            }
+        }
+
+        if (turn.worldTick.isNotBlank()) {
+            Row(verticalAlignment = Alignment.Top) {
+                Icon(Icons.Default.Public, contentDescription = null, tint = CyanNeon, modifier = Modifier.size(16.dp).padding(top = 2.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Meanwhile… ${turn.worldTick}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = CyanNeon.copy(alpha = 0.85f),
+                    fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
+                )
+            }
+        }
+
+        // State changes as chips
+        val changes = turn.stateChanges.split('\n', ';', ',')
+            .map { it.trim().trimStart('-', '•', ' ') }
+            .filter { it.isNotEmpty() && !it.equals("NONE", ignoreCase = true) }
+        if (changes.isNotEmpty()) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                changes.forEach { change ->
+                    val bad = Regex("-\\$|lost|lose|injur|hurt|owe|heat|damage|stole|serious|critical", RegexOption.IGNORE_CASE).containsMatchIn(change)
+                    val tint = if (bad) BloodRed else PhosphorGreen
+                    Text(
+                        text = change,
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        color = tint,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(50))
+                            .background(tint.copy(alpha = 0.12f))
+                            .border(1.dp, tint.copy(alpha = 0.5f), RoundedCornerShape(50))
+                            .padding(horizontal = 10.dp, vertical = 4.dp)
+                    )
+                }
+            }
+        }
     }
 }
 
