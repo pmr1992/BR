@@ -1,0 +1,6 @@
+{
+  "name": "Blackridge",
+  "description": "Persistent open-world text RPG game engine with autonomous NPCs, living world ticks, and consequence-driven narrative.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
