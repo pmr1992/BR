@@ -83,10 +83,14 @@ class BlackridgeEngine(
         )
     }
 
-    suspend fun resolveTurn(currentState: GameState, playerAction: String): Pair<GameState, TurnOutput> {
+    suspend fun resolveTurn(
+        currentState: GameState,
+        playerAction: String,
+        recentTurns: List<TurnOutput> = emptyList()
+    ): Pair<GameState, TurnOutput> {
         // Try Gemini if API key is valid
         if (currentState.apiKey.isNotEmpty() && currentState.apiKey != "SKIP") {
-            val aiTurn = geminiHelper.requestTurnFromGemini(currentState, playerAction, currentState.apiKey)
+            val aiTurn = geminiHelper.requestTurnFromGemini(currentState, playerAction, currentState.apiKey, recentTurns)
             if (aiTurn != null) {
                 val updatedState = updateStateFromAiTurn(currentState, aiTurn, playerAction)
                 return Pair(updatedState, aiTurn)
@@ -94,7 +98,8 @@ class BlackridgeEngine(
         }
 
         // Deterministic offline procedural engine
-        return resolveTurnProcedurally(currentState, playerAction)
+        val (state, turn) = resolveTurnProcedurally(currentState, playerAction)
+        return Pair(state, turn.copy(playerAction = playerAction))
     }
 
     private fun resolveTurnProcedurally(currentState: GameState, action: String): Pair<GameState, TurnOutput> {
@@ -530,9 +535,9 @@ class BlackridgeEngine(
     }
 
     private fun updateStateFromAiTurn(currentState: GameState, aiTurn: TurnOutput, action: String): GameState {
-        // Parse time if possible
-        var newMinutes = currentState.timeMinutes + 8
-        if (newMinutes >= 24 * 60) newMinutes -= 24 * 60
+        // Use the clock the engine printed; fall back to a fixed 8-minute tick if it is unparseable
+        val newMinutes = parseClockMinutes(aiTurn.timeFormatted)
+            ?: ((currentState.timeMinutes + 8) % (24 * 60))
 
         val hunger = HungerState.values().find { it.displayName.equals(aiTurn.hunger, ignoreCase = true) } ?: currentState.hunger
         val thirst = ThirstState.values().find { it.displayName.equals(aiTurn.thirst, ignoreCase = true) } ?: currentState.thirst
@@ -541,6 +546,8 @@ class BlackridgeEngine(
         val visited = currentState.visitedLocations.toMutableSet()
         val locName = aiTurn.location.split("(").firstOrNull()?.trim() ?: currentState.locationName
         visited.add(locName)
+        val district = WorldData.LOCATIONS[locName]?.district
+            ?: aiTurn.location.substringAfter("(", "").substringBefore(")").trim().ifEmpty { currentState.locationDistrict }
 
         return currentState.copy(
             turn = aiTurn.turnNumber,
@@ -548,11 +555,20 @@ class BlackridgeEngine(
             weekday = Weekday.values().find { it.displayName.equals(aiTurn.weekday, ignoreCase = true) } ?: currentState.weekday,
             timeMinutes = newMinutes,
             locationName = locName,
+            locationDistrict = district,
             cash = aiTurn.cash,
             hunger = hunger,
             thirst = thirst,
             health = health,
             visitedLocations = visited
         )
+    }
+
+    private fun parseClockMinutes(time: String): Int? {
+        val match = Regex("(\\d{1,2}):(\\d{2})\\s*(AM|PM)", RegexOption.IGNORE_CASE).find(time) ?: return null
+        val hour12 = match.groupValues[1].toInt() % 12
+        val minute = match.groupValues[2].toInt()
+        val isPm = match.groupValues[3].equals("PM", ignoreCase = true)
+        return (hour12 + if (isPm) 12 else 0) * 60 + minute
     }
 }

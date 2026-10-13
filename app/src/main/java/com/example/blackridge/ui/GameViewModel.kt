@@ -85,7 +85,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                             actionA = "",
                             actionB = "",
                             actionC = "",
-                            rawFormattedText = log.turnSkeletonText
+                            rawFormattedText = log.turnSkeletonText,
+                            playerAction = log.playerAction
                         )
                     }
                     val currentTurn = engine.generateTurnOne(state)
@@ -203,7 +204,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch {
             try {
-                val (newState, newTurn) = engine.resolveTurn(curState, clean)
+                val (newState, newTurn) = engine.resolveTurn(curState, clean, _uiState.value.turnHistory)
                 val newHistory = _uiState.value.turnHistory + newTurn
 
                 _uiState.update {
