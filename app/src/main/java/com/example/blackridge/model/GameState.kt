@@ -24,6 +24,7 @@ data class GameState(
     ),
     val nsfwSetting: NsfwSetting = NsfwSetting.OFF,
     val apiKey: String = "",
+    val aiModel: String = "", // OpenRouter model id; blank = default
     val debtAmount: Int = 450,
     val debtDeadlineMinutes: Int = 2880, // 48 hours
     val heatLevel: Int = 1, // 1-5

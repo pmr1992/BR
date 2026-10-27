@@ -29,6 +29,7 @@ data class UiState(
     val currentScreen: AppScreen = AppScreen.StartNsfw,
     val nsfwSetting: NsfwSetting = NsfwSetting.OFF,
     val apiKey: String = "",
+    val aiModel: String = "",
     val activeSlotId: Int = 1,
     val gameState: GameState? = null,
     val currentTurnOutput: TurnOutput? = null,
@@ -85,7 +86,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                             actionA = "",
                             actionB = "",
                             actionC = "",
-                            rawFormattedText = log.turnSkeletonText
+                            rawFormattedText = log.turnSkeletonText,
+                            playerAction = log.playerAction
                         )
                     }
                     val currentTurn = engine.generateTurnOne(state)
@@ -95,7 +97,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                             currentTurnOutput = currentTurn,
                             turnHistory = historyList,
                             nsfwSetting = state.nsfwSetting,
-                            apiKey = state.apiKey
+                            apiKey = state.apiKey,
+                            aiModel = state.aiModel
                         )
                     }
                 }
@@ -107,9 +110,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update { it.copy(nsfwSetting = setting, currentScreen = AppScreen.StartApi) }
     }
 
-    fun setApiKeyAndProceed(key: String) {
+    fun setApiKeyAndProceed(key: String, model: String = "") {
         val trimmed = key.trim()
-        _uiState.update { it.copy(apiKey = trimmed, currentScreen = AppScreen.StartCharacter) }
+        _uiState.update { it.copy(apiKey = trimmed, aiModel = model.trim(), currentScreen = AppScreen.StartCharacter) }
     }
 
     fun skipApiKey() {
@@ -177,7 +180,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         startGameWithState(state)
     }
 
-    private fun startGameWithState(state: GameState) {
+    private fun startGameWithState(initial: GameState) {
+        val state = initial.copy(aiModel = _uiState.value.aiModel)
         viewModelScope.launch {
             val turnOne = engine.generateTurnOne(state)
             _uiState.update {
@@ -203,7 +207,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch {
             try {
-                val (newState, newTurn) = engine.resolveTurn(curState, clean)
+                val (newState, newTurn) = engine.resolveTurn(curState, clean, _uiState.value.turnHistory)
                 val newHistory = _uiState.value.turnHistory + newTurn
 
                 _uiState.update {

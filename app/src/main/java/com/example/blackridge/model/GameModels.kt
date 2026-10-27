@@ -97,7 +97,8 @@ data class TurnOutput(
     val actionC: String,
     val actionD: String = "freeform — type anything",
     val isEntryRule: Boolean = false,
-    val rawFormattedText: String = ""
+    val rawFormattedText: String = "",
+    val playerAction: String = ""
 ) {
     fun toSkeletonString(): String {
         return buildString {

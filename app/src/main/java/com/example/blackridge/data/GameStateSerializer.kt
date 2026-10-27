@@ -21,6 +21,7 @@ object GameStateSerializer {
         root.put("health", state.health.name)
         root.put("nsfwSetting", state.nsfwSetting.name)
         root.put("apiKey", state.apiKey)
+        root.put("aiModel", state.aiModel)
         root.put("debtAmount", state.debtAmount)
         root.put("debtDeadlineMinutes", state.debtDeadlineMinutes)
         root.put("heatLevel", state.heatLevel)
@@ -91,6 +92,7 @@ object GameStateSerializer {
             val health = HealthState.values().find { it.name.equals(root.optString("health"), ignoreCase = true) } ?: HealthState.Fine
             val nsfw = NsfwSetting.values().find { it.name.equals(root.optString("nsfwSetting"), ignoreCase = true) } ?: NsfwSetting.OFF
             val apiKey = root.optString("apiKey", "")
+            val aiModel = root.optString("aiModel", "")
             val debtAmount = root.optInt("debtAmount", 450)
             val debtDeadlineMinutes = root.optInt("debtDeadlineMinutes", 2880)
             val heatLevel = root.optInt("heatLevel", 1)
@@ -170,6 +172,7 @@ object GameStateSerializer {
                 characterProfile = profile,
                 nsfwSetting = nsfw,
                 apiKey = apiKey,
+                aiModel = aiModel,
                 debtAmount = debtAmount,
                 debtDeadlineMinutes = debtDeadlineMinutes,
                 heatLevel = heatLevel,
